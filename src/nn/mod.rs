@@ -1,5 +1,6 @@
 use std::fmt;
 use std::time::Instant;
+use ansi_term::Colour;
 
 use crate::exam::*;
 use crate::layer::*;
@@ -7,6 +8,7 @@ use crate::layer::*;
 
 #[derive(Clone)]
 pub struct NeuralNet{
+    score: Option<f64>,
     layers: Vec<Layer>
 }
 
@@ -37,6 +39,7 @@ impl NeuralNet{
         }
 
         NeuralNet{
+            score: None,
             layers
         }
     }
@@ -44,6 +47,7 @@ impl NeuralNet{
     //Creates an empty, dummy neural net
     fn new_empty() -> NeuralNet{
         NeuralNet{
+            score: None,
             layers: Vec::new()
         }
     }
@@ -59,6 +63,14 @@ impl NeuralNet{
         }
 
         l_s
+    }
+
+    fn set_score(&mut self, score: f64){
+        self.score = Some(score);
+    }
+
+    fn get_score(&self) -> Option<f64>{
+        self.score
     }
 
     //Returns the outputs of the last layer
@@ -96,6 +108,8 @@ impl NeuralNet{
             total_difference += diff_from_expected.abs();
         }
 
+        self.set_score(total_difference);
+
         total_difference
     }
 
@@ -108,6 +122,8 @@ impl NeuralNet{
 
             let mut previous_layer: &mut Layer = &mut Layer::new(0, 0, 0);
 
+            println!("Input: \t{:?}", exam.get_input());
+
             for (index, layer) in self.layers.iter_mut().enumerate(){
                 //If 'index' is 0, the considered layer is the first one, the one fed with inputs
                 if index == 0{
@@ -116,19 +132,25 @@ impl NeuralNet{
                     layer.calculate_values(&previous_layer.get_outputs());
                 }
 
-                println!("Layer {}:\t{:?}", index, layer.get_outputs());
+                //println!("Layer {}:\t{:?}", index, layer.get_outputs());
 
                 previous_layer = layer;
             }
 
             //TODO: IMPROVE THIS
             let diff_from_expected = exam.get_expected() - self.get_final_output()[0];
-            
-            total_difference += diff_from_expected.abs();
 
-            println!("Expected:\t{}", exam.get_expected());
+            println!("Output:  \t{:.3}", self.get_final_output()[0]);
+            println!("Expected:\t{:.3}", exam.get_expected());
+            println!("Score:   \t{:.3}", diff_from_expected);
+            
             println!();
+
+            total_difference += diff_from_expected.abs();
         }
+
+        println!("Total score:\t{:.3}", total_difference);
+        self.set_score(total_difference);
 
         total_difference
     }
@@ -168,8 +190,16 @@ impl NeuralNet{
         
         //For how many gens it is needed
         for iteration in 0..gens{
+
+            if iteration % 10 == 0{
+                println!("Iteration {:<6}Score: {:.10}", iteration, senior.get_score().unwrap_or(-1.0));
+            }
+
             //Array of children to be filled
             let mut children;
+
+            //Array with all the scores
+            let mut scores = Vec::new();
 
             //If iteration == 0, the children must be generated from self, the calling neural net
             //Else, the children will be generated from the best net of the previous generation
@@ -179,15 +209,11 @@ impl NeuralNet{
                 children = senior.reproduce(children_each_iter, changes_per_layer, percent_conns_changed, percent_change);
             }
 
-            //Array with all the scores
-            let mut scores = Vec::new();
-
             //Fill the array with the scores of each network
             for net in children.iter_mut(){
                 scores.push(net.examine(trials));
             }
 
-            //Find the best score
             let mut best_score_index = 0;
             for (index, score) in scores.clone().into_iter().enumerate(){
                 if score < scores[best_score_index]{
@@ -195,13 +221,21 @@ impl NeuralNet{
                 }
             }
 
+            //If the best of the descendants gives a perfect score, there's no need to continue the evolution process
+            if scores[best_score_index] == 0.0 {
+                println!("{} in {}/{} iterations", Colour::Green.bold().paint("Perfect score"), iteration, gens);
+                break
+            }
+
             //Make the net with the best score the parent of the next gen
             senior = children[best_score_index].clone();
+            senior.set_score(scores[best_score_index]);
         }
 
         //Finish timing
         let duration = start_timer.elapsed();
         println!("Evolution finished in {:?}", duration);
+        println!();
 
         senior
     }
